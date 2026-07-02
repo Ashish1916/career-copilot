@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+credentials.json
+token.json
+briefing.md
+.env
+.DS_Store
+.venv/
