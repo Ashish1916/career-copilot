@@ -23,10 +23,19 @@ export class CareerCopilotStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
-    // Gmail OAuth material (credentials + token JSON). Seeded out-of-band.
+    // Third-party keys live in Secrets Manager (the Crewtron pattern), seeded
+    // out-of-band by scripts/seed-secrets.sh. Never in code or git.
     const gmailSecret = new secrets.Secret(this, "GmailSecret", {
       secretName: "career-copilot/gmail",
       description: "Gmail OAuth credentials.json + token.json for the agent",
+    });
+    const claudeSecret = new secrets.Secret(this, "ClaudeSecret", {
+      secretName: "career-copilot/anthropic",
+      description: "Anthropic (Claude) API key",
+    });
+    const apifySecret = new secrets.Secret(this, "ApifySecret", {
+      secretName: "career-copilot/apify",
+      description: "Apify personal API token",
     });
 
     // Bundle only src/ (career_copilot pkg + its requirements.txt) — keeps
@@ -71,11 +80,15 @@ export class CareerCopilotStack extends cdk.Stack {
         ...common.environment,
         MY_EMAIL: "ashishkosana@gmail.com",
         OWNER_USER_ID: ownerUserId,
+        CLAUDE_SECRET_ID: claudeSecret.secretName,
+        APIFY_SECRET_ID: apifySecret.secretName,
       },
       timeout: cdk.Duration.seconds(120),
     });
     table.grantReadWriteData(cronFn);
     gmailSecret.grantRead(cronFn);
+    claudeSecret.grantRead(cronFn);
+    apifySecret.grantRead(cronFn);
 
     new events.Rule(this, "DailyRule", {
       // 07:00 America/Phoenix = 14:00 UTC (AZ has no DST).
