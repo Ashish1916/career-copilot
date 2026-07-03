@@ -16,12 +16,16 @@ ATS_DOMAINS = (
 
 # Status detection — order matters (strongest signal first).
 _STATUS_RULES = (
-    ("offer", r"\boffer\b|pleased to offer|extend an offer"),
-    ("interview", r"interview|phone screen|schedule (a|your)|availability|move forward|next step|meet with"),
-    ("assessment", r"assessment|coding challenge|codesignal|hackerrank|online test|take[- ]home"),
-    ("rejected", r"not moving forward|unfortunately|regret to|other candidates|will not be|not be moving"),
-    ("viewed", r"application was viewed|viewed your application"),
-    ("applied", r"thank you for applying|application received|we(?:'ve| have) received your application|your application"),
+    ("offer", r"pleased to offer|extend(?:ing)? an offer|offer of employment|your offer|job offer"),
+    # Require real intent — not just the word "interview" (kills marketing like
+    # "What's it like to interview at X?" / "interview tips").
+    ("interview", r"(schedule|set ?up|book|invite you)\b.{0,24}(interview|call|screen|chat|conversation|time)"
+                  r"|phone screen|interview invit(e|ation)|interview request|would like to (interview|speak|chat|meet)"
+                  r"|move forward with your|next (round|step|steps) in"),
+    ("assessment", r"assessment|coding challenge|codesignal|hackerrank|online test|take[- ]home|complete .{0,20}challenge"),
+    ("rejected", r"not moving forward|will not be moving|unfortunately|regret to inform|other candidates|position (has been )?closed|not (be )?selected"),
+    ("viewed", r"application was viewed|viewed your application|was sent to"),
+    ("applied", r"thank you for applying|application received|received your application|we(?:'ve| have) received your application|your application (for|to|is)"),
 )
 
 NEEDS_ME = ("offer", "interview", "assessment")

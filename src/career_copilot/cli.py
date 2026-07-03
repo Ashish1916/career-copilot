@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import click
 
-from . import briefing, triage
+from . import briefing, jobs as jobs_mod, triage
 
 
 @click.group()
@@ -27,7 +27,8 @@ def briefingcmd(query, max_results, email, to, out, no_gmail):
         msgs = gmail_client.fetch_recent(query=query, max_results=max_results)
         summary = triage.summarize(msgs)
 
-    text = briefing.render(summary)
+    matches = jobs_mod.top_new_jobs(seen_ids=set())
+    text = briefing.render(summary, jobs=matches)
     with open(out, "w") as f:
         f.write(text)
     click.echo(text)

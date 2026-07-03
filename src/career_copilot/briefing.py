@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 
-def render(summary: dict, plan: dict | None = None) -> str:
+def render(summary: dict, jobs: list[dict] | None = None,
+           plan: dict | None = None) -> str:
+    jobs = jobs or []
     plan = plan or {}
     lines: list[str] = ["# ☀️ Career Copilot — Daily Briefing", ""]
 
@@ -14,6 +16,17 @@ def render(summary: dict, plan: dict | None = None) -> str:
             lines.append(f"- **{a['status'].title()}** — {who}: {a['subject']}")
     else:
         lines.append("- Nothing needs you. ✅")
+    lines.append("")
+
+    # 2. Today's matches (new scored roles from the job engine)
+    lines.append("## 🎯 Today's matches")
+    if jobs:
+        for j in jobs:
+            loc = f" · {j['location']}" if j.get("location") else ""
+            lines.append(f"- **{j['score']}%** — {j['title']} @ {j['company']}{loc}")
+            lines.append(f"  {j['url']}")
+    else:
+        lines.append("- No new roles today (or job engine not configured).")
     lines.append("")
 
     # 2. Pipeline snapshot
@@ -29,7 +42,7 @@ def render(summary: dict, plan: dict | None = None) -> str:
 
     # 3. Today's plan (the anti-fragmentation checklist)
     lines.append("## ✅ Today's 30-minute plan")
-    lines.append(f"- [ ] Apply to **{plan.get('apply', 5)}** curated roles (see job digest)")
+    lines.append(f"- [ ] Apply to the **{len(jobs) or plan.get('apply', 5)}** matches above")
     lines.append(f"- [ ] Connect with **{plan.get('connect', 5)}** recruiters/engineers (with a note)")
     lines.append("- [ ] Reply to anything under **Needs you** above")
     lines.append(f"- [ ] {plan.get('linkedin', 'Publish 1 LinkedIn post or comment on 2')}")
