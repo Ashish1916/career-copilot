@@ -14,8 +14,9 @@ import json
 import os
 from datetime import datetime, timezone
 
-from . import auth, briefing, gmail_client, jobs as jobs_mod, response, storage
-from .triage import summarize
+from . import (apify, auth, briefing, drafts, gmail_client, jobs as jobs_mod,
+               response, storage)
+from .triage import needs_action, summarize
 
 _SECRET_ID = os.environ.get("GMAIL_SECRET_ID", "career-copilot/gmail")
 _OWNER_USER_ID = os.environ.get("OWNER_USER_ID", "")
@@ -35,15 +36,45 @@ def _materialise_gmail_secret() -> None:
         json.dump(data["token"], f)
 
 
+def _load_api_keys() -> None:
+    """Load Claude + Apify keys from Secrets Manager into env (best-effort)."""
+    import boto3
+    sm = boto3.client("secretsmanager")
+    for env_name, secret_env in (("ANTHROPIC_API_KEY", "CLAUDE_SECRET_ID"),
+                                 ("APIFY_TOKEN", "APIFY_SECRET_ID")):
+        secret_id = os.environ.get(secret_env)
+        if not secret_id or os.environ.get(env_name):
+            continue
+        try:
+            os.environ[env_name] = sm.get_secret_value(
+                SecretId=secret_id)["SecretString"]
+        except Exception:
+            pass  # unseeded secret -> that feature degrades gracefully
+
+
 def cron_handler(event=None, context=None) -> dict:
     _materialise_gmail_secret()
+    _load_api_keys()
+    apify.APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
+
     messages = gmail_client.fetch_recent(
         query="newer_than:2d", max_results=50,
         creds_path=_CREDS, token_path=_TOKEN,
     )
     summary = summarize(messages)
 
-    matches = jobs_mod.top_new_jobs(seen_ids=storage.seen_job_ids(_OWNER_USER_ID))
+    # Claude drafts replies (as Gmail DRAFTS, never sent) for needs-action mail.
+    n_drafts = drafts.draft_replies(
+        [m for m in messages if needs_action(m)],
+        lambda to, subj, body: gmail_client.create_draft(
+            to, subj, body, creds_path=_CREDS, token_path=_TOKEN),
+    )
+
+    # Jobs: local ja DB when present (dev), Apify dataset in the cloud.
+    seen = storage.seen_job_ids(_OWNER_USER_ID)
+    matches = jobs_mod.top_new_jobs(seen_ids=seen)
+    if not matches:
+        matches = [j for j in apify.fetch_scored_jobs() if j["id"] not in seen][:8]
     if matches:
         storage.save_jobs(_OWNER_USER_ID, matches)
     markdown = briefing.render(summary, jobs=matches)
@@ -57,7 +88,7 @@ def cron_handler(event=None, context=None) -> dict:
             creds_path=_CREDS, token_path=_TOKEN,
         )
     return {"date": date, "needs_action": len(summary["needs_action"]),
-            "jobs": len(matches)}
+            "jobs": len(matches), "drafts": n_drafts}
 
 
 def api_handler(event=None, context=None) -> dict:

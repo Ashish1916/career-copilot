@@ -59,3 +59,12 @@ def send_email(to: str, subject: str, body: str,
     msg = f"To: {to}\r\nSubject: {subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}"
     raw = base64.urlsafe_b64encode(msg.encode()).decode()
     svc.users().messages().send(userId="me", body={"raw": raw}).execute()
+
+
+def create_draft(to: str, subject: str, body: str,
+                 creds_path: str = "credentials.json", token_path: str = "token.json") -> None:
+    """Create a draft (never sends) — for Claude-written replies you review."""
+    svc = _service(creds_path, token_path)
+    msg = f"To: {to}\r\nSubject: {subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}"
+    raw = base64.urlsafe_b64encode(msg.encode()).decode()
+    svc.users().drafts().create(userId="me", body={"message": {"raw": raw}}).execute()
