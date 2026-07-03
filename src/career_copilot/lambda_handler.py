@@ -1,12 +1,12 @@
-"""AWS Lambda entrypoints for the hosted agent.
+"""AWS Lambda entrypoints — Crewtron-style (Cognito auth + userId isolation).
 
-Two handlers, one deployment:
-  cron_handler  — EventBridge daily: fetch inbox -> triage -> store briefing -> email
-  api_handler   — API Gateway GET /briefing: return the latest stored briefing
+  cron_handler — EventBridge daily: fetch inbox -> triage -> jobs -> store -> email.
+                 Runs as the single owner (OWNER_USER_ID = your Cognito sub).
+  api_handler  — API Gateway GET /briefing behind the Cognito authorizer:
+                 returns the caller's latest stored briefing.
 
-The Gmail OAuth secret (credentials.json + token.json contents) lives in
-Secrets Manager and is materialised to /tmp so the existing gmail_client
-functions work unchanged.
+The Gmail OAuth secret (credentials.json + token.json) lives in Secrets Manager
+and is materialised to /tmp so the existing gmail_client works unchanged.
 """
 from __future__ import annotations
 
@@ -14,10 +14,11 @@ import json
 import os
 from datetime import datetime, timezone
 
-from . import briefing, gmail_client, jobs as jobs_mod, storage
+from . import auth, briefing, gmail_client, jobs as jobs_mod, response, storage
 from .triage import summarize
 
 _SECRET_ID = os.environ.get("GMAIL_SECRET_ID", "career-copilot/gmail")
+_OWNER_USER_ID = os.environ.get("OWNER_USER_ID", "")
 _MY_EMAIL = os.environ.get("MY_EMAIL", "")
 _CREDS = "/tmp/credentials.json"
 _TOKEN = "/tmp/token.json"
@@ -42,29 +43,29 @@ def cron_handler(event=None, context=None) -> dict:
     )
     summary = summarize(messages)
 
-    matches = jobs_mod.top_new_jobs(seen_ids=storage.seen_job_ids())
+    matches = jobs_mod.top_new_jobs(seen_ids=storage.seen_job_ids(_OWNER_USER_ID))
     if matches:
-        storage.save_jobs(matches)
+        storage.save_jobs(_OWNER_USER_ID, matches)
     markdown = briefing.render(summary, jobs=matches)
 
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    storage.save_briefing(date, markdown, summary)
+    storage.save_briefing(_OWNER_USER_ID, date, markdown, summary)
 
     if _MY_EMAIL:
         gmail_client.send_email(
-            _MY_EMAIL, f"☀️ Career Copilot — {date}", markdown,
+            _MY_EMAIL, f"Career Copilot — {date}", markdown,
             creds_path=_CREDS, token_path=_TOKEN,
         )
-    return {"date": date, "needs_action": len(summary["needs_action"])}
+    return {"date": date, "needs_action": len(summary["needs_action"]),
+            "jobs": len(matches)}
 
 
 def api_handler(event=None, context=None) -> dict:
-    latest = storage.latest_briefing()
-    body = latest or {"markdown": "No briefing yet. Check back after the morning run.",
-                      "summary": {}}
-    return {
-        "statusCode": 200,
-        "headers": {"Content-Type": "application/json",
-                    "Access-Control-Allow-Origin": "*"},
-        "body": json.dumps(body, default=str),
-    }
+    user_id = auth.extract_user_id(event or {})
+    if not user_id:
+        return response.error("Unauthorized", 401)
+    latest = storage.latest_briefing(user_id)
+    return response.success(latest or {
+        "markdown": "No briefing yet. Check back after the morning run.",
+        "summary": {},
+    })

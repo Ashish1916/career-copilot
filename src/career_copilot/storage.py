@@ -1,11 +1,11 @@
-"""DynamoDB persistence for the hosted agent.
+"""DynamoDB persistence — Crewtron-style single table, userId partition key.
 
-Single table (PK/SK):
-  PK="BRIEFING"      SK=<iso-date>   -> the day's rendered briefing + summary
-  PK="JOB"           SK=<job_id>     -> a scraped job (for dedup + shortlist)
-  PK="PIPELINE"      SK=<app_key>    -> an application's tracked state
+  PK=<userId>  SK="BRIEFING#<iso-date>"  -> the day's rendered briefing
+  PK=<userId>  SK="JOB#<job_id>"         -> a surfaced job (for dedup)
+  PK=<userId>  SK="PIPELINE#<app_key>"   -> an application's tracked state
 
-Local dev falls back to a JSON file so you can run without AWS.
+Tenant isolation is enforced by always scoping queries to the caller's userId,
+exactly like Crewtron. Local dev falls back to a JSON file (set LOCAL_DB).
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import json
 import os
 
 TABLE_NAME = os.environ.get("TABLE_NAME", "career-copilot")
-_LOCAL_DB = os.environ.get("LOCAL_DB", "")  # set to a path to use file storage
+_LOCAL_DB = os.environ.get("LOCAL_DB", "")  # path -> use file storage for dev
 
 
 def _table():
@@ -22,21 +22,20 @@ def _table():
 
 
 # ---- briefing ---------------------------------------------------------------
-def save_briefing(date: str, markdown: str, summary: dict) -> None:
-    item = {"PK": "BRIEFING", "SK": date, "markdown": markdown, "summary": summary}
-    if _LOCAL_DB:
-        _local_put(item)
-    else:
-        _table().put_item(Item=item)
+def save_briefing(user_id: str, date: str, markdown: str, summary: dict) -> None:
+    _put({"PK": user_id, "SK": f"BRIEFING#{date}", "date": date,
+          "markdown": markdown, "summary": summary})
 
 
-def latest_briefing() -> dict | None:
+def latest_briefing(user_id: str) -> dict | None:
     if _LOCAL_DB:
-        rows = [r for r in _local_all() if r.get("PK") == "BRIEFING"]
+        rows = [r for r in _local_all()
+                if r.get("PK") == user_id and r.get("SK", "").startswith("BRIEFING#")]
         return max(rows, key=lambda r: r["SK"], default=None)
     from boto3.dynamodb.conditions import Key
     resp = _table().query(
-        KeyConditionExpression=Key("PK").eq("BRIEFING"),
+        KeyConditionExpression=Key("PK").eq(user_id)
+        & Key("SK").begins_with("BRIEFING#"),
         ScanIndexForward=False, Limit=1,
     )
     items = resp.get("Items", [])
@@ -44,33 +43,38 @@ def latest_briefing() -> dict | None:
 
 
 # ---- jobs (dedup) -----------------------------------------------------------
-def seen_job_ids() -> set[str]:
+def seen_job_ids(user_id: str) -> set[str]:
+    prefix = "JOB#"
     if _LOCAL_DB:
-        return {r["SK"] for r in _local_all() if r.get("PK") == "JOB"}
+        return {r["SK"][len(prefix):] for r in _local_all()
+                if r.get("PK") == user_id and r.get("SK", "").startswith(prefix)}
     from boto3.dynamodb.conditions import Key
     ids, key = set(), None
     while True:
-        kw = {"KeyConditionExpression": Key("PK").eq("JOB"),
-              "ProjectionExpression": "SK"}
+        kw = {"KeyConditionExpression": Key("PK").eq(user_id)
+              & Key("SK").begins_with(prefix), "ProjectionExpression": "SK"}
         if key:
             kw["ExclusiveStartKey"] = key
         page = _table().query(**kw)
-        ids.update(i["SK"] for i in page.get("Items", []))
+        ids.update(i["SK"][len(prefix):] for i in page.get("Items", []))
         key = page.get("LastEvaluatedKey")
         if not key:
             return ids
 
 
-def save_jobs(jobs: list[dict]) -> None:
+def save_jobs(user_id: str, jobs: list[dict]) -> None:
     for j in jobs:
-        item = {"PK": "JOB", "SK": str(j["id"]), **j}
-        if _LOCAL_DB:
-            _local_put(item)
-        else:
-            _table().put_item(Item=item)
+        _put({"PK": user_id, "SK": f"JOB#{j['id']}", **j})
 
 
-# ---- tiny local JSON fallback ----------------------------------------------
+# ---- put + local JSON fallback ---------------------------------------------
+def _put(item: dict) -> None:
+    if _LOCAL_DB:
+        _local_put(item)
+    else:
+        _table().put_item(Item=item)
+
+
 def _local_all() -> list[dict]:
     if not os.path.exists(_LOCAL_DB):
         return []

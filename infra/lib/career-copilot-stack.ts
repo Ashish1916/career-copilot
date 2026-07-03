@@ -7,6 +7,7 @@ import * as apigw from "aws-cdk-lib/aws-apigateway";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as secrets from "aws-cdk-lib/aws-secretsmanager";
+import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as path from "path";
 
 export class CareerCopilotStack extends cdk.Stack {
@@ -43,11 +44,34 @@ export class CareerCopilotStack extends cdk.Stack {
       memorySize: 256,
     };
 
-    // Daily cron: fetch inbox -> triage -> store briefing -> email.
+    // Cognito — the Crewtron auth pattern. The mobile app signs in here and
+    // sends the ID token; API Gateway's authorizer verifies it and injects the
+    // `sub` claim that becomes our DynamoDB userId.
+    const userPool = new cognito.UserPool(this, "UserPool", {
+      userPoolName: "career-copilot",
+      selfSignUpEnabled: true,
+      signInAliases: { email: true },
+      autoVerify: { email: true },
+      standardAttributes: { email: { required: true, mutable: true } },
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    const userPoolClient = userPool.addClient("MobileClient", {
+      authFlows: { userSrp: true },
+    });
+
+    // OWNER_USER_ID = your Cognito `sub`; the cron writes the briefing under it
+    // so the app (same user) reads it back. Fill after creating your user.
+    const ownerUserId = this.node.tryGetContext("ownerUserId") || "";
+
+    // Daily cron: fetch inbox -> triage -> jobs -> store briefing -> email.
     const cronFn = new PythonFunction(this, "CronFn", {
       ...common,
       handler: "cron_handler",
-      environment: { ...common.environment, MY_EMAIL: "ashishkosana@gmail.com" },
+      environment: {
+        ...common.environment,
+        MY_EMAIL: "ashishkosana@gmail.com",
+        OWNER_USER_ID: ownerUserId,
+      },
       timeout: cdk.Duration.seconds(120),
     });
     table.grantReadWriteData(cronFn);
@@ -73,11 +97,21 @@ export class CareerCopilotStack extends cdk.Stack {
         allowMethods: apigw.Cors.ALL_METHODS,
       },
     });
+    const authorizer = new apigw.CognitoUserPoolsAuthorizer(this, "Authorizer", {
+      cognitoUserPools: [userPool],
+    });
     api.root
       .addResource("briefing")
-      .addMethod("GET", new apigw.LambdaIntegration(apiFn));
+      .addMethod("GET", new apigw.LambdaIntegration(apiFn), {
+        authorizer,
+        authorizationType: apigw.AuthorizationType.COGNITO,
+      });
 
     new cdk.CfnOutput(this, "ApiUrl", { value: api.url });
+    new cdk.CfnOutput(this, "UserPoolId", { value: userPool.userPoolId });
+    new cdk.CfnOutput(this, "UserPoolClientId", {
+      value: userPoolClient.userPoolClientId,
+    });
     new cdk.CfnOutput(this, "GmailSecretName", { value: gmailSecret.secretName });
   }
 }
