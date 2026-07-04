@@ -1,7 +1,9 @@
 {
   "name": "career-copilot-infra",
   "version": "0.1.0",
-  "bin": { "career-copilot": "bin/app.js" },
+  "bin": {
+    "career-copilot": "bin/app.js"
+  },
   "scripts": {
     "build": "tsc",
     "synth": "cdk synth",
@@ -14,7 +16,6 @@
     "typescript": "^5.4.0"
   },
   "dependencies": {
-    "@aws-cdk/aws-lambda-python-alpha": "^2.130.0-alpha.0",
     "aws-cdk-lib": "^2.130.0",
     "constructs": "^10.3.0"
   }

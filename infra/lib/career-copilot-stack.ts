@@ -2,7 +2,6 @@ import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as lambda from "aws-cdk-lib/aws-lambda";
-import { PythonFunction } from "@aws-cdk/aws-lambda-python-alpha";
 import * as apigw from "aws-cdk-lib/aws-apigateway";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
@@ -38,13 +37,13 @@ export class CareerCopilotStack extends cdk.Stack {
       description: "Apify personal API token",
     });
 
-    // Bundle only src/ (career_copilot pkg + its requirements.txt) — keeps
-    // .venv, infra/, and any local credentials out of the deployment artifact.
-    const src = path.join(__dirname, "..", "..", "src");
+    // Lambda code is pre-built (Docker-free) by infra/build-lambda.sh, which
+    // pip-installs the deps as manylinux wheels + copies career_copilot into
+    // infra/build. Run that script before `cdk deploy`.
+    const code = lambda.Code.fromAsset(path.join(__dirname, "..", "build"));
     const common = {
       runtime: lambda.Runtime.PYTHON_3_13,
-      entry: src,
-      index: "career_copilot/lambda_handler.py",
+      code,
       environment: {
         TABLE_NAME: table.tableName,
         GMAIL_SECRET_ID: gmailSecret.secretName,
@@ -73,9 +72,9 @@ export class CareerCopilotStack extends cdk.Stack {
     const ownerUserId = this.node.tryGetContext("ownerUserId") || "";
 
     // Daily cron: fetch inbox -> triage -> jobs -> store briefing -> email.
-    const cronFn = new PythonFunction(this, "CronFn", {
+    const cronFn = new lambda.Function(this, "CronFn", {
       ...common,
-      handler: "cron_handler",
+      handler: "career_copilot.lambda_handler.cron_handler",
       environment: {
         ...common.environment,
         MY_EMAIL: "ashishkosana@gmail.com",
@@ -97,9 +96,9 @@ export class CareerCopilotStack extends cdk.Stack {
     });
 
     // API: GET /briefing -> latest stored briefing (for the Flutter app).
-    const apiFn = new PythonFunction(this, "ApiFn", {
+    const apiFn = new lambda.Function(this, "ApiFn", {
       ...common,
-      handler: "api_handler",
+      handler: "career_copilot.lambda_handler.api_handler",
     });
     table.grantReadData(apiFn);
 
