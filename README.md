@@ -7,7 +7,7 @@ the search takes minutes a day instead of hours.
 
 Built to solve my own job search, on the stack I work in:
 **Python · Gmail API (OAuth) · AWS serverless (Lambda · DynamoDB · API Gateway ·
-Cognito · CDK) · Apify · Claude API.**
+Cognito · CDK) · Apify · an LLM.**
 
 ## What it does
 - **Scans your inbox** (Gmail API) and **triages** it — separates real
@@ -15,7 +15,7 @@ Cognito · CDK) · Apify · Claude API.**
 - **Surfaces today's job matches** — top-scored, de-duped roles. Locally these
   come from the [`ja`](https://github.com/Ashishkosana) job-apply store; in the
   cloud from a scheduled **Apify** scraper, keyword-scored against the profile.
-- **Drafts replies with Claude** for interview/recruiter mail — created as
+- **Drafts replies with an LLM** for interview/recruiter mail — created as
   **Gmail drafts you review**, never auto-sent.
 - **Renders one briefing** (Markdown, optional email) with a focused daily plan.
 
@@ -59,7 +59,7 @@ copilot briefing --email      # also email the briefing to yourself
 ```
 
 Optional keys light up more features (all optional):
-`ANTHROPIC_API_KEY` (Claude drafts) · `APIFY_TOKEN` (cloud scraper) ·
+`ANTHROPIC_API_KEY` (an LLM drafts) · `APIFY_TOKEN` (cloud scraper) ·
 `JA_DB_PATH` (local job matches) — see `.env.example`.
 
 ## Deploy (AWS)
@@ -70,7 +70,7 @@ AWS_PROFILE=<personal> ./scripts/seed-secrets.sh   # push local keys → Secrets
 ```
 
 ## Roadmap
-- **Backend** — Gmail triage · job engine · Apify scraper · Claude drafts ·
+- **Backend** — Gmail triage · job engine · Apify scraper · an LLM drafts ·
   Cognito/DynamoDB · daily cron ✅
 - **Next** — deploy + wire keys; **Flutter iPhone app** (TestFlight) consuming
   the API; push notifications.
