@@ -38,6 +38,14 @@ pytest                   # unit tests
 
 ## Status
 - ✅ domain (models, triage, SWE scoring, briefing) + ports + config + logging + tests + CI
-- ⬜ adapters (Gmail, Gemini, DynamoDB, Secrets Manager, job sources)
-- ⬜ services (daily-briefing orchestration) + Lambda handlers
-- ⬜ cut CDK over to this package; wire Google Cloud (Gmail OAuth + Gemini)
+- ✅ services (daily-briefing orchestration), wired from ports
+- ✅ adapters — DynamoDB store, `ja` job source (SQLite → fixture fallback),
+  hosted-LLM reply drafter, Gmail mailbox (SDKs imported lazily)
+- ✅ Lambda handlers — daily `cron` + read `api` (JWT `sub` → user id, CORS)
+- ⬜ wire OAuth credentials from Secrets Manager (documented TODO in the Gmail adapter)
+- ⬜ cut CDK over to this package; deploy (out of scope here)
+
+The adapter SDKs (`boto3`, Google client, LLM SDK) are all imported lazily and
+never pulled in by the domain, so the full suite runs with `pip install -e ".[dev]"`
+alone — no cloud SDKs, credentials, or network. Install `".[adapters]"` to run
+the real cloud path.

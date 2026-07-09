@@ -40,12 +40,27 @@ ignore = ["PLR0913"]  # allow richer function signatures in orchestration
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["PLR2004"]  # magic values in assertions are fine in tests
+# Adapters lazy-import their cloud/vendor SDK inside the method that needs it, so
+# importing the package never drags in boto3/google or requires credentials.
+"src/copilot/adapters/*" = ["PLC0415"]
 
 [tool.mypy]
 python_version = "3.13"
 strict = true
 mypy_path = "src"
 plugins = ["pydantic.mypy"]
+
+# Cloud/Google SDKs ship no (complete) type stubs; the adapter layer imports them
+# lazily and keeps their return values behind typed boundaries.
+[[tool.mypy.overrides]]
+module = [
+  "boto3.*",
+  "botocore.*",
+  "googleapiclient.*",
+  "google.*",
+  "google_auth_oauthlib.*",
+]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
